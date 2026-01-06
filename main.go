@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,6 +61,20 @@ func main() {
 		b, _ := json.MarshalIndent(d, "", "  ")
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(b)
+	})
+
+	router.HandleFunc("GET /{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		res, err := http.Get(fmt.Sprintf("https://pixeldrain.com/api/file/%s", id))
+		if err != nil {
+			panic(err)
+		}
+		defer res.Body.Close()
+
+		w.WriteHeader(res.StatusCode)
+		maps.Copy(w.Header(), res.Header)
+		io.Copy(w, res.Body)
 	})
 
 	port := os.Getenv("PORT")
