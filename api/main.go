@@ -1,4 +1,4 @@
-package main
+package handler
 
 import (
 	"crypto/tls"
@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"os"
 )
 
 type DebugRequest struct {
@@ -28,12 +27,23 @@ type DebugRequest struct {
 	TLS           *tls.ConnectionState
 }
 
-func main() {
+var router = setupRouter()
+
+func Handler(w http.ResponseWriter, r *http.Request) {
+	router.ServeHTTP(w, r)
+}
+
+func setupRouter() *http.ServeMux {
 	router := http.NewServeMux()
 
 	router.HandleFunc("GET /ip", func(w http.ResponseWriter, r *http.Request) {
-		ip := getIP()
-		w.Write(ip)
+		url := r.URL.Query().Get("url")
+		if url == "" {
+			w.Write(getIP("https://api.ipify.org"))
+			return
+		}
+
+		w.Write(getIP(url))
 	})
 
 	router.HandleFunc("GET /hw", func(w http.ResponseWriter, r *http.Request) {
@@ -66,27 +76,38 @@ func main() {
 	router.HandleFunc("GET /{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
-		res, err := http.Get(fmt.Sprintf("https://pixeldrain.com/api/file/%s", id))
+		if id == "" {
+			http.Error(w, "id is required", http.StatusBadRequest)
+			return
+		}
+
+		req, err := http.NewRequest("GET", fmt.Sprintf("https://pixeldrain.com/api/file/%s", id), nil)
 		if err != nil {
-			panic(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		req.Header.Set("Host", "pixeldrain.com")
+		req.Header.Set("Origin", "https://pixeldrain.com")
+		req.Header.Set("Referer", "https://pixeldrain.com")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/237.84.2.178 Safari/537.36")
+
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		defer res.Body.Close()
 
-		w.WriteHeader(res.StatusCode)
 		maps.Copy(w.Header(), res.Header)
+		w.WriteHeader(res.StatusCode)
 		io.Copy(w, res.Body)
 	})
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	http.ListenAndServe(":"+port, router)
+	return router
 }
 
-func getIP() []byte {
-	res, err := http.Get("https://api.ipify.org")
+func getIP(url string) []byte {
+	res, err := http.Get(url)
 	if err != nil {
 		panic(err)
 	}
